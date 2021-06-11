@@ -1,8 +1,7 @@
 locals {
   # Sort environment variables so terraform will not try to recreate on each plan/apply
-  env_vars             = var.environment
-  env_vars_keys        = var.map_environment != null ? keys(var.map_environment) : [for m in local.env_vars : lookup(m, "name")]
-  env_vars_values      = var.map_environment != null ? values(var.map_environment) : [for m in local.env_vars : lookup(m, "value")]
+  env_vars_keys        = var.map_environment != null ? keys(var.map_environment) : var.environment != null ? [for m in var.environment : lookup(m, "name")] : []
+  env_vars_values      = var.map_environment != null ? values(var.map_environment) : var.environment != null ? [for m in var.environment : lookup(m, "value")] : []
   env_vars_as_map      = zipmap(local.env_vars_keys, local.env_vars_values)
   sorted_env_vars_keys = sort(local.env_vars_keys)
 
@@ -11,6 +10,20 @@ locals {
     {
       name  = key
       value = lookup(local.env_vars_as_map, key)
+    }
+  ]
+
+  # Sort secrets so terraform will not try to recreate on each plan/apply
+  secrets_keys        = var.map_secrets != null ? keys(var.map_secrets) : var.secrets != null ? [for m in var.secrets : lookup(m, "name")] : []
+  secrets_values      = var.map_secrets != null ? values(var.map_secrets) : var.secrets != null ? [for m in var.secrets : lookup(m, "valueFrom")] : []
+  secrets_as_map      = zipmap(local.secrets_keys, local.secrets_values)
+  sorted_secrets_keys = sort(local.secrets_keys)
+
+  sorted_secrets_vars = [
+    for key in local.sorted_secrets_keys :
+    {
+      name      = key
+      valueFrom = lookup(local.secrets_as_map, key)
     }
   ]
 
@@ -24,6 +37,7 @@ locals {
 
   # https://www.terraform.io/docs/configuration/expressions.html#null
   final_environment_vars = length(local.sorted_environment_vars) > 0 ? local.sorted_environment_vars : null
+  final_secrets_vars     = length(local.sorted_secrets_vars) > 0 ? local.sorted_secrets_vars : null
 
   log_configuration_secret_options = var.log_configuration != null ? lookup(var.log_configuration, "secretOptions", null) : null
   log_configuration_with_null = var.log_configuration == null ? null : {
@@ -71,7 +85,7 @@ locals {
     cpu                    = var.container_cpu
     environment            = local.final_environment_vars
     environmentFiles       = var.environment_files
-    secrets                = var.secrets
+    secrets                = local.final_secrets_vars
     dockerLabels           = var.docker_labels
     startTimeout           = var.start_timeout
     stopTimeout            = var.stop_timeout
